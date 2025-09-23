@@ -1,69 +1,60 @@
-# main.py
 from pyspark.sql import SparkSession
-from pyspark.sql.functions import *
-from pyspark.sql.window import Window
+from pyspark.sql import functions as F
 
-# 1. Start SparkSession
-spark = SparkSession.builder.appName("MusicAnalysis").getOrCreate()
+# --------------------------------------------------
+# 1. Spark session
+# --------------------------------------------------
+spark = SparkSession.builder.appName("MusicInsights").getOrCreate()
 
-# 2. Load datasets
-logs = spark.read.option("header", True).csv("listening_logs.csv", inferSchema=True)
-songs = spark.read.option("header", True).csv("songs_metadata.csv", inferSchema=True)
+# --------------------------------------------------
+# 2. Load data
+# --------------------------------------------------
+logs = spark.read.csv("listening_logs.csv", header=True, inferSchema=True)
+songs = spark.read.csv("songs_metadata.csv", header=True, inferSchema=True)
 
-# Join logs with songs metadata
+# Ensure timestamp is a timestamp type
+logs = logs.withColumn("timestamp", F.to_timestamp("timestamp"))
+
+# --------------------------------------------------
+# 3. Join logs with song metadata to get genres
+# --------------------------------------------------
 df = logs.join(songs, on="song_id", how="inner")
 
-# =====================================================
-# Task 1: User Favorite Genres
-# =====================================================
-genre_counts = df.groupBy("user_id", "genre").count()
+# --------------------------------------------------
+# 4. Genre Loyalty Scores
+#    Percentage of a user’s listens for each genre
+# --------------------------------------------------
+total_by_user = df.groupBy("user_id") \
+                  .agg(F.count("*").alias("total_listens"))
 
-# Window to rank genres by count per user
-w = Window.partitionBy("user_id").orderBy(desc("count"))
-user_fav_genre = genre_counts.withColumn("rank", row_number().over(w)) \
-                             .filter(col("rank") == 1) \
-                             .drop("rank")
+genre_by_user = df.groupBy("user_id", "genre") \
+                  .agg(F.count("*").alias("genre_listens"))
 
-user_fav_genre.write.mode("overwrite").csv("output/user_favorite_genres", header=True)
+genre_loyalty_scores = genre_by_user.join(total_by_user, "user_id") \
+    .withColumn(
+        "loyalty_score",
+        (F.col("genre_listens") / F.col("total_listens")).cast("double")
+    )
 
-# =====================================================
-# Task 2: Average Listen Time per Song
-# =====================================================
-avg_listen_time = df.groupBy("song_id", "title", "artist", "genre") \
-                    .agg(avg("duration_sec").alias("avg_duration_sec"))
+# Save as a Parquet directory
+genre_loyalty_scores.write.mode("overwrite").parquet("genre_loyalty_scores/")
 
-avg_listen_time.write.mode("overwrite").csv("output/avg_listen_time_per_song", header=True)
+# --------------------------------------------------
+# 5. Night Owl Users
+#    Active between 10 PM and 4 AM
+# --------------------------------------------------
+night_owl_users = (
+    df.withColumn("hour", F.hour("timestamp"))
+      .filter((F.col("hour") >= 22) | (F.col("hour") < 4))
+      .groupBy("user_id")
+      .agg(F.count("*").alias("night_play_count"))
+)
 
-# =====================================================
-# Task 3: Genre Loyalty Scores
-# =====================================================
-# Total plays per user
-total_plays = df.groupBy("user_id").count().withColumnRenamed("count", "total_plays")
+night_owl_users.write.mode("overwrite").parquet("night_owl_users/")
 
-# Plays per user + genre
-plays_per_genre = df.groupBy("user_id", "genre").count()
+# Optional: show quick preview
+print("=== Genre Loyalty Scores ===")
+genre_loyalty_scores.show(5, truncate=False)
 
-# Find favorite genre play count
-fav_play_count = plays_per_genre.join(user_fav_genre, ["user_id", "genre"], "inner") \
-                                .select("user_id", col("count").alias("fav_genre_plays"))
-
-# Loyalty score = fav_genre_plays / total_plays
-loyalty = fav_play_count.join(total_plays, "user_id") \
-                        .withColumn("loyalty_score", col("fav_genre_plays") / col("total_plays")) \
-                        .filter(col("loyalty_score") > 0.8)
-
-loyalty.write.mode("overwrite").csv("output/genre_loyalty_scores", header=True)
-
-# =====================================================
-# Task 4: Identify users who listen between 12 AM and 5 AM
-# =====================================================
-# Extract hour from timestamp
-df = df.withColumn("hour", hour(to_timestamp("timestamp", "yyyy-MM-dd HH:mm:ss")))
-
-night_owls = df.filter((col("hour") >= 0) & (col("hour") <= 5)) \
-               .select("user_id").distinct()
-
-night_owls.write.mode("overwrite").csv("output/night_owl_users", header=True)
-
-# Stop Spark
-spark.stop()
+print("=== Night Owl Users ===")
+night_owl_users.show(5, truncate=False)
