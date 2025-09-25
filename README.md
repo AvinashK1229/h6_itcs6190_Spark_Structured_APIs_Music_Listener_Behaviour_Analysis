@@ -63,6 +63,23 @@ out/
 ---
 
 ## Tasks and Outputs
+## Sample Input Data
+
+### `listening_logs.csv`
+| user_id | song_id | timestamp           | duration_sec |
+|--------:|--------:|---------------------|-------------:|
+| 101     | S001   | 2025-09-20 14:22:10 | 210         |
+| 101     | S002   | 2025-09-21 02:15:45 | 180         |
+| 102     | S003   | 2025-09-20 23:50:03 | 240         |
+
+### `songs_metadata.csv`
+| song_id | title               | genre    |
+|--------:|---------------------|--------- |
+| S001    | City Lights         | Pop      |
+| S002    | Midnight Jazz       | Jazz     |
+| S003    | Electronic Sunrise  | EDM      |
+
+---
 
 ### Task 1: User Favorite Genres
 *Goal:* For each user, choose the genre with the highest total listening duration (tie-breakers: higher play count, then alphabetical genre).  
@@ -85,6 +102,32 @@ loyalty = (duration in favorite genre) / (total duration by user)
 *Goal:* Identify users with plays in hours 0..4 based on parsed timestamps.  
 *Output:* out/night_owl_users/  
 *Key fields:* user_id, night_plays, night_duration_sec
+
+---
+## Sample Output
+
+### 1. User Favorite Genres
+| user_id | genre | count |
+|--------:|-------|------:|
+| 101     | Pop   | 1    |
+| 102     | EDM   | 1    |
+
+### 2. Average Listen Time per Song
+| song_id | avg_duration_sec |
+|--------:|-----------------:|
+| S001    | 210             |
+| S002    | 180             |
+| S003    | 240             |
+
+### 3. Genre Loyalty Scores (≤ 0.75)
+| user_id | genre | count | total_plays | loyalty_score |
+|--------:|-------|------:|------------:|--------------:|
+| 101     | Pop   | 1    | 2          | 0.50          |
+
+### 4. Night Owl Users (12 AM – 5 AM)
+| user_id |
+|--------:|
+| 101     |
 
 ---
 
